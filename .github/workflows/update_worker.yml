@@ -1,38 +1,41 @@
-name: 自动更新 _worker.js
+name: Daily Sync _worker.js from cmliu/edgetunnel
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 每天运行
-  workflow_dispatch:       # 支持手动触发
+    - cron: '0 0 * * *'  # 每天 UTC 零点运行
+  workflow_dispatch:      # 手动触发
 
 jobs:
-  update:
+  update-worker:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出仓库
-        uses: actions/checkout@v4
+      - name: 检出当前仓库代码
+        uses: actions/checkout@v3
 
-      - name: 设置 Git 用户信息
+      - name: 下载最新 edgetunnel 明文源码.js
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          curl -L -o new_worker.js https://raw.githubusercontent.com/cmliu/edgetunnel/main/%E6%98%8E%E6%96%87%E6%BA%90%E7%A0%81.js
 
-      - name: 下载 edgetunnel 的源码为 _worker.js
+      - name: 比较差异，仅在有更新时才替换
         run: |
-          curl -L -o _worker.js https://raw.githubusercontent.com/cmliu/edgetunnel/main/worker.js
+          if [ ! -f "_worker.js" ]; then
+            echo "首次下载，直接同步"
+            mv new_worker.js _worker.js
+            echo "updated=true" >> $GITHUB_ENV
+          elif ! cmp -s new_worker.js _worker.js; then
+            echo "发现内容更新，准备同步"
+            mv new_worker.js _worker.js
+            echo "updated=true" >> $GITHUB_ENV
+          else
+            echo "无内容更新"
+          fi
 
-      - name: 获取最新提交哈希
+      - name: 提交变更（如果有）
+        if: env.updated == 'true'
         run: |
-          echo "version=$(curl -s https://api.github.com/repos/cmliu/edgetunnel/commits/main | jq -r .sha)" >> $GITHUB_ENV
-
-      - name: 写入版本号
-        run: |
-          echo "${{ env.version }}" > version.txt
-
-      - name: 提交更新
-        run: |
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-          git add _worker.js version.txt
-          git commit -m "自动更新 _worker.js 到上游版本 ${{ env.version }}" || echo "没有文件变化，跳过提交"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add _worker.js
+          git commit -m "自动同步 _worker.js 来自 cmliu/edgetunnel" || echo "无变更可提交"
           git push
