@@ -1,0 +1,36 @@
+name: 自动更新 _worker.js
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 UTC 时间 0 点运行
+  workflow_dispatch:     # 允许手动触发
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Git 用户信息
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: 下载明文源码.js
+        run: |
+          curl -L -o _worker.js https://raw.githubusercontent.com/cmliu/edgetunnel/main/明文源码.js
+
+      - name: 获取最新提交哈希
+        run: |
+          echo "version=$(curl -s https://api.github.com/repos/cmliu/edgetunnel/commits/main | jq -r .sha)" >> $GITHUB_ENV
+
+      - name: 更新 version.txt
+        run: |
+          echo "${{ env.version }}" > version.txt
+
+      - name: 提交并推送更改
+        run: |
+          git add _worker.js version.txt
+          git commit -m "自动更新 _worker.js 至版本 ${{ env.version }}"
+          git push
