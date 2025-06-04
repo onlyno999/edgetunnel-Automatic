@@ -13,29 +13,62 @@ jobs:
       - name: 检出当前仓库代码
         uses: actions/checkout@v3
 
-      - name: 下载最新 edgetunnel 明文源码.js
+      - name: 获取上游仓库最新 commit 哈希
+        id: upstream
         run: |
-          curl -L -o new_worker.js https://raw.githubusercontent.com/cmliu/edgetunnel/main/%E6%98%8E%E6%96%87%E6%BA%90%E7%A0%81.js
+          UPSTREAM_COMMIT=$(git ls-remote https://github.com/cmliu/edgetunnel.git HEAD | awk '{print $1}')
+          echo "upstream_commit=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
 
-      - name: 比较差异，仅在有更新时才替换
+      - name: 读取上次同步的 commit 哈希（如有）
+        id: local
+        run: |
+          if [ -f .last_upstream_commit ]; then
+            LAST_COMMIT=$(cat .last_upstream_commit)
+          else
+            LAST_COMMIT=""
+          fi
+          echo "last_commit=$LAST_COMMIT" >> $GITHUB_OUTPUT
+
+      - name: 判断是否需要更新
+        id: check
+        run: |
+          if [ "${{ steps.upstream.outputs.upstream_commit }}" != "${{ steps.local.outputs.last_commit }}" ]; then
+            echo "need_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_update=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 克隆上游并提取文件
+        if: steps.check.outputs.need_update == 'true'
+        run: |
+          git clone --depth=1 https://github.com/cmliu/edgetunnel.git upstream_repo
+          cp "upstream_repo/明文源码.js" new_worker.js
+
+      - name: 比较文件并更新
+        if: steps.check.outputs.need_update == 'true'
         run: |
           if [ ! -f "_worker.js" ]; then
-            echo "首次下载，直接同步"
+            echo "首次同步"
             mv new_worker.js _worker.js
             echo "updated=true" >> $GITHUB_ENV
           elif ! cmp -s new_worker.js _worker.js; then
-            echo "发现内容更新，准备同步"
+            echo "文件内容有变动"
             mv new_worker.js _worker.js
             echo "updated=true" >> $GITHUB_ENV
           else
-            echo "无内容更新"
+            echo "文件内容无变动"
           fi
+
+      - name: 保存最新 commit 哈希
+        if: env.updated == 'true' || steps.check.outputs.need_update == 'true'
+        run: |
+          echo "${{ steps.upstream.outputs.upstream_commit }}" > .last_upstream_commit
 
       - name: 提交变更（如果有）
         if: env.updated == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add _worker.js
-          git commit -m "自动同步 _worker.js 来自 cmliu/edgetunnel" || echo "无变更可提交"
+          git add _worker.js .last_upstream_commit
+          git commit -m "自动同步 _worker.js 来自 cmliu/edgetunnel"
           git push
