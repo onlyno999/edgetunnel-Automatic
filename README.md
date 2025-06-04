@@ -17,10 +17,6 @@
 
 ## 功能介绍
 
-* 每天自动检查 bia-pain-bache/BPB-Worker-Panel 仓库的最新 Release
-
-* **支持选择更新正式版或预发布版本：通过手动触发或 `update_type.txt` 文件配置 1是正式版 0是测试版本。**
-
 * 自动下载最新版本的 worker.js
 
 * 重命名为 \_worker.js
@@ -28,10 +24,6 @@
 * 同步更新本地 version.txt
 
 * 自动提交并推送到本仓库
-
-* **如果 `update_type.txt` 文件不存在，将自动创建并默认设置为更新正式版。**
-
-* **更新成功后，自动复用或创建 GitHub Issue 进行通知。**
 
 ## 工作流程
 
@@ -60,6 +52,7 @@ edgetunnel-Automatic/
 │       └── sync_worker.yml     ✅ 自动同步工作流
 ├── _worker.js                  ✅ 自动生成的 Worker 脚本（首次运行后生成）
 ├── README.md                   ✅ 可选：说明用途
+
 
 ## ⚙️ 配置说明
 
