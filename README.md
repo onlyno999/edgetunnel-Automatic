@@ -37,23 +37,18 @@
 
 GitHub Actions 会每日 00:00（UTC 时间）自动运行：
 
-1. **检查 `update_type.txt` 文件：如果文件不存在，会自动创建并写入 `1`（表示正式版）。**
 
-2. **根据 `update_type.txt` 或手动输入确定更新类型（正式版或预发布版）。**
+1. 比较本地 version.txt 的记录。
 
-3. 获取上游仓库的最新 Release 版本号（根据所选类型）。
+2. 若版本不同，则自动下载并替换 \_worker.js。
 
-4. 比较本地 version.txt 的记录。
+3. 更新 version.txt。
 
-5. 若版本不同，则自动下载并替换 \_worker.js。
+4. 自动提交并推送到主分支（main）。
 
-6. 更新 version.txt。
+5. **如果 `version.txt` 文件是自动创建的，也会一并提交到仓库。**
 
-7. 自动提交并推送到主分支（main）。
-
-8. **如果 `update_type.txt` 文件是自动创建的，也会一并提交到仓库。**
-
-9. **如果更新成功并提交了更改，工作流会首先查找一个名为 `_worker.js 自动更新通知` 且带有 `auto-update-status-issue` 标签的现有 Issue。如果找到，则在该 Issue 下添加一条评论，包含更新时间、版本类型和版本号；如果未找到，则创建一个新的 Issue 并添加该标签。**
+6. **如果更新成功并提交了更改，工作流会首先查找一个名为 `_worker.js 自动更新通知` 且带有 `auto-update-status-issue` 标签的现有 Issue。如果找到，则在该 Issue 下添加一条评论，包含更新时间、版本类型和版本号；如果未找到，则创建一个新的 Issue 并添加该标签。**
 
 > 若版本一致，则不执行任何操作。
 
@@ -74,9 +69,9 @@ edgetunnel-Automatic/
 
 * **更新类型配置（`update_type.txt`）：**
 
-  * 在仓库根目录下创建或修改 `update_type.txt` 文件。
+  * 在仓库根目录下创建或修改 `version.txt` 文件。
   * 
-  * **手动触发时，您可以通过 GitHub Actions 界面选择更新类型，此选择将覆盖 `update_type.txt` 的设置。**
+  * **手动触发时，您可以通过 GitHub Actions 界面选择更新类型，此选择将覆盖 `version.txt` 的设置。**
 
 * **更新成功通知：**
 
