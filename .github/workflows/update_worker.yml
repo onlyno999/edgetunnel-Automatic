@@ -3,72 +3,50 @@ name: Daily Sync _worker.js from cmliu/edgetunnel
 on:
   schedule:
     - cron: '0 0 * * *'  # 每天 UTC 零点运行
-  workflow_dispatch:      # 手动触发
+  workflow_dispatch:      # 支持手动触发
 
 jobs:
-  update-worker:
+  sync-worker:
     runs-on: ubuntu-latest
 
     steps:
       - name: 检出当前仓库代码
         uses: actions/checkout@v3
 
-      - name: 获取上游仓库最新 commit 哈希
-        id: upstream
+      - name: 获取上游最新 commit SHA
+        id: get_sha
         run: |
-          UPSTREAM_COMMIT=$(git ls-remote https://github.com/cmliu/edgetunnel.git HEAD | awk '{print $1}')
-          echo "upstream_commit=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
+          curl -s https://api.github.com/repos/cmliu/edgetunnel/commits/main \
+            | grep '"sha"' | head -n 1 | cut -d '"' -f 4 > upstream_sha.txt
+          echo "sha=$(cat upstream_sha.txt)" >> $GITHUB_OUTPUT
 
-      - name: 读取上次同步的 commit 哈希（如有）
-        id: local
+      - name: 检查是否需要更新
+        id: check_update
         run: |
-          if [ -f .last_upstream_commit ]; then
-            LAST_COMMIT=$(cat .last_upstream_commit)
-          else
-            LAST_COMMIT=""
-          fi
-          echo "last_commit=$LAST_COMMIT" >> $GITHUB_OUTPUT
-
-      - name: 判断是否需要更新
-        id: check
-        run: |
-          if [ "${{ steps.upstream.outputs.upstream_commit }}" != "${{ steps.local.outputs.last_commit }}" ]; then
+          if [ ! -f version.txt ]; then
+            echo "首次运行，需更新"
+            echo "need_update=true" >> $GITHUB_OUTPUT
+          elif ! cmp -s upstream_sha.txt version.txt; then
+            echo "上游有新版本，需更新"
             echo "need_update=true" >> $GITHUB_OUTPUT
           else
+            echo "版本未变，无需更新"
             echo "need_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: 克隆上游并提取文件
-        if: steps.check.outputs.need_update == 'true'
+      - name: 同步 _worker.js 并更新 version.txt
+        if: steps.check_update.outputs.need_update == 'true'
         run: |
           git clone --depth=1 https://github.com/cmliu/edgetunnel.git upstream_repo
-          cp "upstream_repo/明文源码.js" new_worker.js
+          cp upstream_repo/明文源码.js _worker.js
+          cp upstream_sha.txt version.txt
+          echo "updated=true" >> $GITHUB_ENV
 
-      - name: 比较文件并更新
-        if: steps.check.outputs.need_update == 'true'
-        run: |
-          if [ ! -f "_worker.js" ]; then
-            echo "首次同步"
-            mv new_worker.js _worker.js
-            echo "updated=true" >> $GITHUB_ENV
-          elif ! cmp -s new_worker.js _worker.js; then
-            echo "文件内容有变动"
-            mv new_worker.js _worker.js
-            echo "updated=true" >> $GITHUB_ENV
-          else
-            echo "文件内容无变动"
-          fi
-
-      - name: 保存最新 commit 哈希
-        if: env.updated == 'true' || steps.check.outputs.need_update == 'true'
-        run: |
-          echo "${{ steps.upstream.outputs.upstream_commit }}" > .last_upstream_commit
-
-      - name: 提交变更（如果有）
+      - name: 提交并推送变更
         if: env.updated == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add _worker.js .last_upstream_commit
-          git commit -m "自动同步 _worker.js 来自 cmliu/edgetunnel"
+          git add _worker.js version.txt
+          git commit -m "自动同步 _worker.js，上游版本 $(cat version.txt)"
           git push
