@@ -57,31 +57,18 @@ jobs:
             echo "updated=true" >> $GITHUB_ENV
           else
             echo "文件内容无变动"
+          fi
 
       - name: 保存最新 commit 哈希
         if: env.updated == 'true' || steps.check.outputs.need_update == 'true'
         run: |
           echo "${{ steps.upstream.outputs.upstream_commit }}" > .last_upstream_commit
 
-      - name: 提交 _worker.js 变更（如果有）
+      - name: 提交变更（如果有）
         if: env.updated == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add _worker.js .last_upstream_commit
           git commit -m "自动同步 _worker.js 来自 cmliu/edgetunnel"
-          git push
-
-      - name: 自动创建并提交 wrangler.toml（仅当 _worker.js 有变更）
-        if: env.updated == 'true'
-        run: |
-          TODAY=$(date -u +%F)
-          echo "name = \"edgetunnel-automatico\"" > wrangler.toml
-          echo "type = \"javascript\"" >> wrangler.toml
-          echo "compatibility_date = \"$TODAY\"" >> wrangler.toml
-
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add wrangler.toml
-          git commit -m "自动创建 wrangler.toml（含 $TODAY）"
           git push
