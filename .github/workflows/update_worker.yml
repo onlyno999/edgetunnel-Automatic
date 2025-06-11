@@ -38,7 +38,7 @@ jobs:
         if: steps.check_update.outputs.need_update == 'true'
         run: |
           git clone --depth=1 https://github.com/cmliu/edgetunnel.git upstream_repo
-          cp upstream_repo/明文源码.js _worker.js
+          cp upstream_repo/_worker.js _worker.js
           cp upstream_sha.txt version.txt
           echo "updated=true" >> $GITHUB_ENV
 
