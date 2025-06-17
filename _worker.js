@@ -200,6 +200,7 @@ export default {
                                 "Content-Disposition": `attachment; filename=${FileName}; filename*=utf-8''${encodeURIComponent(FileName)}`,
                                 //"Content-Type": "text/plain;charset=utf-8",
                                 "Profile-Update-Interval": "6",
+                                "Profile-web-page-url": request.url.includes('?') ? request.url.split('?')[0] : request.url,
                                 "Subscription-Userinfo": `upload=${pagesSum}; download=${workersSum}; total=${total}; expire=${expire}`,
                             }
                         });
@@ -2576,6 +2577,12 @@ async function bestIP(request, env, txt = 'ADD.txt') {
             } else if (ipSource === 'as209242') {
                 // AS209242列表
                 response = await fetch('https://raw.githubusercontent.com/ipverse/asn-ip/master/as/209242/ipv4-aggregated.txt');
+            } else if (ipSource === 'as24429') {
+                // AS24429列表
+                response = await fetch('https://raw.githubusercontent.com/ipverse/asn-ip/master/as/24429/ipv4-aggregated.txt');
+            } else if (ipSource === 'as199524') {
+                // AS199524列表
+                response = await fetch('https://raw.githubusercontent.com/ipverse/asn-ip/master/as/199524/ipv4-aggregated.txt');
             } else if (ipSource === 'cm') {
                 // CM整理列表
                 response = await fetch('https://raw.githubusercontent.com/cmliu/cmliu/main/CF-CIDR.txt');
@@ -3277,7 +3284,7 @@ async function bestIP(request, env, txt = 'ADD.txt') {
         <p><strong>建议尝试以下解决方案：</strong></p>
         <ul>
             <li><strong>更换端口：</strong>尝试使用其他端口（如 2053、2083、2087、2096、8443）</li>
-            <li><strong>更换IP库：</strong>切换到不同的IP来源（CM整理列表、AS13335列表等）</li>
+            <li><strong>更换IP库：</strong>切换到不同的IP来源（CM整理列表、AS13335、AS209242列表等，但如果你不明白AS24429和AS199524意味着什么，那就不要选。）</li>
             <li><strong>更换自定义域名：</strong>如果您使用的还是免费域名，那么您更应该尝试一下更换自定义域</li>
         </ul>
         <p>💡 <strong>小贴士：</strong>不同地区和网络环境对各端口的支持情况可能不同，多尝试几个端口组合通常能找到适合的IP。</p>
@@ -3291,6 +3298,8 @@ async function bestIP(request, env, txt = 'ADD.txt') {
                 <option value="cm">CM整理列表</option>
                 <option value="as13335">AS13335列表</option>
                 <option value="as209242">AS209242列表</option>
+                <option value="as24429">AS24429列表(Alibaba)</option>
+                <option value="as199524">AS199524列表(G-Core)</option>
                 <option value="proxyip">反代IP列表</option>
             </select>
 
@@ -3793,10 +3802,16 @@ async function bestIP(request, env, txt = 'ADD.txt') {
                     ipSourceName = 'CM整理';
                     break;
                 case 'as13335':
-                    ipSourceName = 'AS13335';
+                    ipSourceName = 'CF全段';
                     break;
                 case 'as209242':
-                    ipSourceName = 'AS209242';
+                    ipSourceName = 'CF非官方';
+                    break;
+                case 'as24429':
+                    ipSourceName = 'Alibaba';
+                    break;
+                case 'as199524':
+                    ipSourceName = 'G-Core';
                     break;
                 case 'proxyip':
                     ipSourceName = '反代IP';
