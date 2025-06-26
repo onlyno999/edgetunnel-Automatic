@@ -3,6 +3,7 @@ import { connect } from 'cloudflare:sockets';
 
 let userID = '';
 let proxyIP = '';
+let DNS64Server = '';
 //let sub = '';
 let subConverter = atob('U1VCQVBJLkNNTGl1c3Nzcy5uZXQ=');
 let subConfig = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX01pbmlfTXVsdGlNb2RlLmluaQ==');
@@ -88,7 +89,7 @@ export default {
             proxyIP = env.PROXYIP || env.proxyip || proxyIP;
             proxyIPs = await 整理(proxyIP);
             proxyIP = proxyIPs[Math.floor(Math.random() * proxyIPs.length)];
-
+            DNS64Server = env.DNS64 || env.NAT64 || (DNS64Server != '' ? DNS64Server : atob("ZG5zNjQuY21saXVzc3NzLm5ldA=="));
             socks5Address = env.HTTP || env.SOCKS5 || socks5Address;
             socks5s = await 整理(socks5Address);
             socks5Address = socks5s[Math.floor(Math.random() * socks5s.length)];
@@ -2411,9 +2412,9 @@ async function resolveToIPv6(target) {
 
     // 查询NAT64 IPv6地址
     async function queryNAT64(domain) {
-        const socket = connect(atob('ZG90Lm5hdDY0LmRrOjg1Mw=='), {
-            secureTransport: 'on',
-            allowHalfOpen: false
+        const socket = connect({
+            hostname: isIPv6(DNS64Server) ? `[${DNS64Server}]` : DNS64Server,
+            port: 53
         });
 
         const writer = socket.writable.getWriter();
@@ -2542,25 +2543,34 @@ async function resolveToIPv6(target) {
         return answers;
     }
 
+    function convertToNAT64IPv6(ipv4Address) {
+        const parts = ipv4Address.split('.');
+        if (parts.length !== 4) {
+            throw new Error('无效的IPv4地址');
+        }
+
+        // 将每个部分转换为16进制
+        const hex = parts.map(part => {
+            const num = parseInt(part, 10);
+            if (num < 0 || num > 255) {
+                throw new Error('无效的IPv4地址段');
+            }
+            return num.toString(16).padStart(2, '0');
+        });
+
+        // 构造NAT64
+        return DNS64Server.split('/96')[0] + hex[0] + hex[1] + ":" + hex[2] + hex[3];
+    }
+
     try {
         // 判断输入类型并处理
-        if (isIPv6(target)) {
-            return target; // IPv6直接返回
-        }
-
-        let domain;
-        if (isIPv4(target)) {
-            domain = target + atob('LmlwLjA5MDIyNy54eXo='); // IPv4转换为NAT64域名
-        } else {
-            // 域名先解析IPv4再转NAT64
-            const ipv4 = await fetchIPv4(target);
-            domain = ipv4 + atob('LmlwLjA5MDIyNy54eXo=');
-        }
-
-        return await queryNAT64(domain);
+        if (isIPv6(target)) return target; // IPv6直接返回
+        const ipv4 = isIPv4(target) ? target : await fetchIPv4(target);
+        const nat64 = DNS64Server.endsWith('/96') ? convertToNAT64IPv6(ipv4) : await queryNAT64(ipv4 + atob('LmlwLjA5MDIyNy54eXo='));
+        return isIPv6(nat64) ? nat64 : atob('cHJveHlpcC5jbWxpdXNzc3MubmV0');
     } catch (error) {
         console.error('解析错误:', error);
-        return `解析失败: ${error.message}`;
+        return atob('cHJveHlpcC5jbWxpdXNzc3MubmV0');;
     }
 }
 
