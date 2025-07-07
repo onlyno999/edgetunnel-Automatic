@@ -183,7 +183,12 @@ export default {
                     let pagesSum = UD;
                     let workersSum = UD;
                     let total = 24 * 1099511627776;
-
+                    if (env.CF_EMAIL && env.CF_APIKEY) {
+                        const usage = await getUsage(env.CF_ID, env.CF_EMAIL, env.CF_APIKEY, env.CF_ALL);
+                        pagesSum = usage[1];
+                        workersSum = usage[2];
+                        total = 1024 * 100; // 100K
+                    }
                     if (userAgent && userAgent.includes('mozilla')) {
                         return new Response(维列斯Config, {
                             status: 200,
@@ -2600,23 +2605,23 @@ async function bestIP(request, env, txt = 'ADD.txt') {
                 // 反代IP列表 (直接IP，非CIDR)
                 response = await fetch('https://raw.githubusercontent.com/cmliu/ACL4SSR/main/baipiao.txt');
                 const text = response.ok ? await response.text() : '';
-                
+
                 // 解析并过滤符合端口的IP
                 const allLines = text.split('\n')
                     .map(line => line.trim())
                     .filter(line => line && !line.startsWith('#'));
-                
+
                 const validIps = [];
-                
+
                 for (const line of allLines) {
                     const parsedIP = parseProxyIPLine(line, targetPort);
                     if (parsedIP) {
                         validIps.push(parsedIP);
                     }
                 }
-                
+
                 console.log(`反代IP列表解析完成，端口${targetPort}匹配到${validIps.length}个有效IP`);
-                
+
                 // 如果超过1000个IP，随机选择1000个
                 if (validIps.length > 1000) {
                     const shuffled = [...validIps].sort(() => 0.5 - Math.random());
@@ -2689,17 +2694,17 @@ async function bestIP(request, env, txt = 'ADD.txt') {
             // 移除首尾空格
             line = line.trim();
             if (!line) return null;
-            
+
             let ip = '';
             let port = '';
             let comment = '';
-            
+
             // 处理注释部分
             if (line.includes('#')) {
                 const parts = line.split('#');
                 const mainPart = parts[0].trim();
                 comment = parts[1].trim();
-                
+
                 // 检查主要部分是否包含端口
                 if (mainPart.includes(':')) {
                     const ipPortParts = mainPart.split(':');
@@ -2734,45 +2739,45 @@ async function bestIP(request, env, txt = 'ADD.txt') {
                     port = '443';
                 }
             }
-            
+
             // 验证IP格式
             if (!isValidIP(ip)) {
                 console.warn(`无效的IP地址: ${ip} (来源行: ${line})`);
                 return null;
             }
-            
+
             // 验证端口格式
             const portNum = parseInt(port);
             if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
                 console.warn(`无效的端口号: ${port} (来源行: ${line})`);
                 return null;
             }
-            
+
             // 检查端口是否匹配
             if (port !== targetPort) {
                 return null; // 端口不匹配，过滤掉
             }
-            
+
             // 构建返回格式
             if (comment) {
                 return `${ip}:${port}#${comment}`;
             } else {
                 return `${ip}:${port}`;
             }
-            
+
         } catch (error) {
             console.error(`解析IP行失败: ${line}`, error);
             return null;
         }
     }
-    
+
     // 新增：验证IP地址格式的函数
     function isValidIP(ip) {
         const ipRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
         const match = ip.match(ipRegex);
-        
+
         if (!match) return false;
-        
+
         // 检查每个数字是否在0-255范围内
         for (let i = 1; i <= 4; i++) {
             const num = parseInt(match[i]);
@@ -2780,7 +2785,7 @@ async function bestIP(request, env, txt = 'ADD.txt') {
                 return false;
             }
         }
-        
+
         return true;
     }
 
@@ -3953,7 +3958,7 @@ async function bestIP(request, env, txt = 'ADD.txt') {
         const ipSource = url.searchParams.get('loadIPs');
         const port = url.searchParams.get('port') || '443';
         const ips = await GetCFIPs(ipSource, port);
-        
+
         return new Response(JSON.stringify({ ips }), {
             headers: {
                 'Content-Type': 'application/json',
@@ -3966,4 +3971,192 @@ async function bestIP(request, env, txt = 'ADD.txt') {
             'Content-Type': 'text/html; charset=UTF-8',
         },
     });
+}
+
+/**
+ * 获取 Cloudflare 账户今日使用量统计
+ * @param {string} accountId - 账户ID（可选，如果没有会自动获取）
+ * @param {string} email - Cloudflare 账户邮箱
+ * @param {string} apikey - Cloudflare API 密钥
+ * @param {number} all - 总限额，默认10万次
+ * @returns {Array} [总限额, Pages请求数, Workers请求数, 总请求数]
+ */
+async function getUsage(accountId, email, apikey, all = 100000) {
+    /**
+     * 获取 Cloudflare 账户ID
+     * @param {string} email - 账户邮箱
+     * @param {string} apikey - API密钥
+     * @param {number} accountIndex - 取第几个账户，默认第0个
+     * @returns {string} 账户ID
+     */
+    async function getAccountId(email, apikey) {
+        console.log('正在获取账户信息...');
+
+        const response = await fetch("https://api.cloudflare.com/client/v4/accounts", {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/json",
+                "X-AUTH-EMAIL": email,
+                "X-AUTH-KEY": apikey,
+            }
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`获取账户信息失败: ${response.status} ${response.statusText}`, errorText);
+            throw new Error(`Cloudflare API 请求失败: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const res = await response.json();
+        //console.log(res);
+
+        let accountIndex = 0; // 默认取第一个账户
+        let foundMatch = false; // 标记是否找到匹配的账户
+
+        // 如果有多个账户，智能匹配包含邮箱前缀的账户
+        if (res?.result && res.result.length > 1) {
+            console.log(`发现 ${res.result.length} 个账户，正在智能匹配...`);
+
+            // 提取邮箱前缀并转为小写
+            const emailPrefix = email.toLowerCase();
+            console.log(`邮箱: ${emailPrefix}`);
+
+            // 遍历所有账户，寻找名称开头包含邮箱前缀的账户
+            for (let i = 0; i < res.result.length; i++) {
+                const accountName = res.result[i]?.name?.toLowerCase() || '';
+                console.log(`检查账户 ${i}: ${res.result[i]?.name}`);
+
+                // 检查账户名称开头是否包含邮箱前缀
+                if (accountName.startsWith(emailPrefix)) {
+                    accountIndex = i;
+                    foundMatch = true;
+                    console.log(`✅ 找到匹配账户，使用第 ${i} 个账户`);
+                    break;
+                }
+            }
+
+            // 如果遍历完还没找到匹配的，使用默认值0
+            if (!foundMatch) {
+                console.log('❌ 未找到匹配的账户，使用默认第 0 个账户');
+            }
+        } else if (res?.result && res.result.length === 1) {
+            console.log('只有一个账户，使用第 0 个账户');
+            foundMatch = true;
+        }
+
+        const name = res?.result?.[accountIndex]?.name;
+        const id = res?.result?.[accountIndex]?.id;
+
+        console.log(`最终选择账户 ${accountIndex} - 名称: ${name}, ID: ${id}`);
+
+        if (!id) {
+            throw new Error("找不到有效的账户ID，请检查API权限");
+        }
+
+        return id;
+    }
+
+    try {
+        // 如果没有提供账户ID，就自动获取
+        if (!accountId) {
+            console.log('未提供账户ID，正在自动获取...');
+            accountId = await getAccountId(email, apikey);
+        }
+
+        // 设置查询时间范围：今天0点到现在
+        const now = new Date();
+        const endDate = now.toISOString(); // 结束时间：现在
+
+        // 设置开始时间为今天凌晨0点
+        now.setUTCHours(0, 0, 0, 0);
+        const startDate = now.toISOString(); // 开始时间：今天0点
+
+        console.log(`查询时间范围: ${startDate} 到 ${endDate}`);
+
+        // 向 Cloudflare GraphQL API 发送请求，获取今日使用量
+        const response = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-AUTH-EMAIL": email,
+                "X-AUTH-KEY": apikey,
+            },
+            body: JSON.stringify({
+                // GraphQL 查询语句：获取 Pages 和 Workers 的请求数统计
+                query: `query getBillingMetrics($accountId: String!, $filter: AccountWorkersInvocationsAdaptiveFilter_InputObject) {
+                    viewer {
+                        accounts(filter: {accountTag: $accountId}) {
+                            pagesFunctionsInvocationsAdaptiveGroups(limit: 1000, filter: $filter) {
+                                sum {
+                                    requests
+                                }
+                            }
+                            workersInvocationsAdaptive(limit: 10000, filter: $filter) {
+                                sum {
+                                    requests
+                                }
+                            }
+                        }
+                    }
+                }`,
+                variables: {
+                    accountId: accountId,
+                    filter: {
+                        datetime_geq: startDate, // 大于等于开始时间
+                        datetime_leq: endDate    // 小于等于结束时间
+                    },
+                },
+            }),
+        });
+
+        // 检查API请求是否成功
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`GraphQL查询失败: ${response.status} ${response.statusText}`, errorText);
+            console.log('返回默认值：全部为0');
+            return [all, 0, 0, 0];
+        }
+
+        const res = await response.json();
+
+        // 检查GraphQL响应是否有错误
+        if (res.errors && res.errors.length > 0) {
+            console.error('GraphQL查询错误:', res.errors[0].message);
+            console.log('返回默认值：全部为0');
+            return [all, 0, 0, 0];
+        }
+
+        // 从响应中提取账户数据
+        const accounts = res?.data?.viewer?.accounts?.[0];
+
+        if (!accounts) {
+            console.warn('未找到账户数据');
+            return [all, 0, 0, 0];
+        }
+
+        // 计算 Pages 请求数（Cloudflare Pages 的请求统计）
+        const pagesArray = accounts?.pagesFunctionsInvocationsAdaptiveGroups || [];
+        const pages = pagesArray.reduce((total, item) => {
+            return total + (item?.sum?.requests || 0);
+        }, 0);
+
+        // 计算 Workers 请求数（Cloudflare Workers 的请求统计）
+        const workersArray = accounts?.workersInvocationsAdaptive || [];
+        const workers = workersArray.reduce((total, item) => {
+            return total + (item?.sum?.requests || 0);
+        }, 0);
+
+        // 计算总请求数
+        const total = pages + workers;
+
+        console.log(`统计结果 - Pages: ${pages}, Workers: ${workers}, 总计: ${total}`);
+
+        // 返回格式：[总限额, Pages请求数, Workers请求数, 总请求数]
+        return [all, pages || 0, workers || 0, total || 0];
+
+    } catch (error) {
+        console.error('获取使用量时发生错误:', error.message);
+        // 发生错误时返回默认值
+        return [all, 0, 0, 0];
+    }
 }
