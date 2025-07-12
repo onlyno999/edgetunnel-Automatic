@@ -187,7 +187,7 @@ export default {
                         const usage = await getUsage(env.CF_ID, env.CF_EMAIL, env.CF_APIKEY, env.CF_ALL);
                         pagesSum = usage[1];
                         workersSum = usage[2];
-                        total = 1024 * 100; // 100K
+                        total = env.CF_ALL ? Number(env.CF_ALL) : (1024 * 100); // 100K
                     }
                     if (userAgent && userAgent.includes('mozilla')) {
                         return new Response(维列斯Config, {
@@ -223,12 +223,13 @@ export default {
                     enableHttp = url.pathname.includes('http://');
                     socks5Address = url.pathname.split('://')[1].split('#')[0];
                     if (socks5Address.includes('@')) {
-                        let userPassword = socks5Address.split('@')[0].replaceAll('%3D', '=');
+                        const lastAtIndex = socks5Address.lastIndexOf('@');
+                        let userPassword = socks5Address.substring(0, lastAtIndex).replaceAll('%3D', '=');
                         const base64Regex = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
                         if (base64Regex.test(userPassword) && !userPassword.includes(':')) userPassword = atob(userPassword);
-                        socks5Address = `${userPassword}@${socks5Address.split('@')[1]}`;
+                        socks5Address = `${userPassword}@${socks5Address.substring(lastAtIndex + 1)}`;
                     }
-                    go2Socks5s = ['all in'];
+                    go2Socks5s = ['all in'];//开启全局SOCKS5
                 }
 
                 if (socks5Address) {
@@ -1201,8 +1202,8 @@ async function httpConnect(addressRemote, portRemote, log) {
  */
 function socks5AddressParser(address) {
     // 使用 "@" 分割地址，分为认证部分和服务器地址部分
-    // reverse() 是为了处理没有认证信息的情况，确保 latter 总是包含服务器地址
-    let [latter, former] = address.split("@").reverse();
+    const lastAtIndex = address.lastIndexOf("@");
+    let [latter, former] = lastAtIndex === -1 ? [address, undefined] : [address.substring(lastAtIndex + 1), address.substring(0, lastAtIndex)];
     let username, password, hostname, port;
 
     // 如果存在 former 部分，说明提供了认证信息
@@ -1216,14 +1217,23 @@ function socks5AddressParser(address) {
 
     // 解析服务器地址部分
     const latters = latter.split(":");
-    // 从末尾提取端口号（因为 IPv6 地址中也包含冒号）
-    port = Number(latters.pop());
+    // 检查是否是IPv6地址带端口格式 [xxx]:port
+    if (latters.length > 2 && latter.includes("]:")) {
+        // IPv6地址带端口格式：[2001:db8::1]:8080
+        port = Number(latter.split("]:")[1].replace(/[^\d]/g, ''));
+        hostname = latter.split("]:")[0] + "]"; // 正确提取hostname部分
+    } else if (latters.length === 2) {
+        // IPv4地址带端口或域名带端口
+        port = Number(latters.pop().replace(/[^\d]/g, ''));
+        hostname = latters.join(":");
+    } else {
+        port = 80;
+        hostname = latter;
+    }
+    
     if (isNaN(port)) {
         throw new Error('无效的 SOCKS 地址格式：端口号必须是数字');
     }
-
-    // 剩余部分就是主机名（可能是域名、IPv4 或 IPv6 地址）
-    hostname = latters.join(":");
 
     // 处理 IPv6 地址的特殊情况
     // IPv6 地址包含多个冒号，所以必须用方括号括起来，如 [2001:db8::1]
