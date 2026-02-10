@@ -1,4 +1,4 @@
-name: Daily Sync _worker.js from cmliu/edgetunnel
+name: Daily Sync _worker.js from eooce/Cloudflare-proxy
 
 on:
   schedule:
@@ -16,7 +16,7 @@ jobs:
       - name: 获取上游最新 commit SHA
         id: get_sha
         run: |
-          curl -s https://api.github.com/repos/cmliu/edgetunnel/commits/main \
+          curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main \
             | grep '"sha"' | head -n 1 | cut -d '"' -f 4 > upstream_sha.txt
           echo "sha=$(cat upstream_sha.txt)" >> $GITHUB_OUTPUT
 
@@ -37,7 +37,7 @@ jobs:
       - name: 同步 _worker.js 并更新 version.txt
         if: steps.check_update.outputs.need_update == 'true'
         run: |
-          git clone --depth=1 https://github.com/cmliu/edgetunnel.git upstream_repo
+          git clone --depth=1 https://github.com/eooce/Cloudflare-proxy.git upstream_repo
           cp upstream_repo/_worker.js _worker.js
           cp upstream_sha.txt version.txt
           echo "updated=true" >> $GITHUB_ENV
