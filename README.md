@@ -1,104 +1,101 @@
 
 
+<div align="center">
 
-## 🚀 快速开始（适合 Fork）
+# Workers & Snippets deploy VLESS + trojan + shadowsocks
 
-1. 点击右上角 Fork 本仓库到你的 GitHub 账号。
+**中文** | [English](README_EN.md)
 
-2. 打开你的仓库，进入 Actions 页面，点击 Enable workflows（启用 GitHub Actions）。
+Telegram交流反馈群组: https://t.me/eooceu
 
-3. 无需其他配置，GitHub 默认的 GITHUB_TOKEN 权限即可推送更新。
+基于 Cloudflare Workers & Snippets 的高性能 VLESS+trojan 代理服务
 
-4. 你可以手动点击 Run workflow，也可以等待每天定时自动检查。
+YouTube视频部署教程：https://youtu.be/GEcKz2NoKlM
 
-> 注意：确保你的仓库默认分支为 main，否则推送时可能失败。
+Shadowsocks部署视频教程：https://youtu.be/hUPN_69Atow
 
-🌟 如果觉得这个项目对你有帮助，欢迎顺手点个 Star 支持一下谢谢！
+pages部署视频教程：https://www.youtube.com/watch?v=kNi6OwJ_e5k
 
-## 功能介绍
+</div>
 
-* 自动下载最新版本的 worker.js
+## 功能特性
 
-* 重命名为 \_worker.js
+- 🚀 基于 Cloudflare Workers 和 snippets 的高性能代理
+- 🌐 vless + trojan 双协议支持
+- 🔐 密码保护的主页访问
+- 📱 支持多种客户端(v2rayN,shadowrocket,loon,karing,clash,sing-box等)
+- 🌐 自动故障转移和负载均衡
+- 📊 实时连接测试和状态监控
+- 📊 默认禁用speedtest测速
 
-* 同步更新本地 version.txt
+## 环境变量配置
 
-* 自动提交并推送到本仓库
+### 必需变量
 
-## 工作流程
+| 变量名 | 描述 | 默认值 | 示例 |
+|--------|------|--------|------|
+| `PASSWORD` | 主页访问密码 | `123456` | `your_web_password` |
 
-GitHub Actions 会每日 00:00（UTC 时间）自动运行：
+### workers可选变量
+
+| 变量名 | 描述 | 默认值 | 示例 |
+|--------|------|--------|------|
+| `UUID`或`AUTH`或`uuid` | 用户UUID | `5dc15e15-f285-4a9d-959b-0e4fbdd77b63` | `your-uuid` |
+| `PROXYIP`或`proxyip`或`proxyIP` | 代理服务器IP列表 | `13.230.34.30` | `tw.tp81.netlib.re` |
+| `SUB_PATH`或`subpath` | 订阅路径 | `link` | `sub` |
+| `DISABLE_TROJAN`或`CLOSE_TROJAN` | 是否关闭Trojan协议，true关闭，false开启 | `false` | 默认开启 |
+
+## 部署步骤
+
+1. **登录 Cloudflare Dashboard**
+   - 访问 [Cloudflare Dashboard](https://dash.cloudflare.com/)
+   - 登录你的账户
+
+2. **创建 Worker**
+   - 点击 "Workers & Pages"
+   - 点击 "Create application"
+   - 选择 "Create Worker"
+   - 输入 Worker 名称(不要带vless,proxy之类的关键词，建议默认)
+
+3. **上传代码**
+   - 将 `_worker.js` 文件内容复制到编辑器
+   - 点击 右上角 "Deploy"
+
+4. **配置环境变量**
+   - 在 Worker 设置中找到 "Settings" → "Variables"
+   - 添加所需的环境变量并绑定自定义域名
+   - 点击 "Save"
+
+5. **访问自定义域名**
+   - 输入登录密码进入主页查看相关订阅链接
+
+## snippets / workers 路径进阶用法
+
+### 相关路径说明
+<img width="700" height="600" alt="image" src="https://github.com/user-attachments/assets/86b3dd1d-bbca-4786-9bb3-430bf6700024" />
+
+| 类型 | 示例 | 说明 |
+|------|------|------|
+| **默认路径** | `/?ed=2560` | 使用代码里设置的默认 `proxyip` |
+| **域名 proxyip** | `/?ed=2560&proxyip=proxyip.domain.com` 或 `proxyip=proxyip.domain.com`  | 使用域名形式的 `proxyip` |
+| **带端口的 proxyip** | `/?ed=2560&proxyip=ip:port` 或 `/proxyip=ip:port` | 使用带端口的 `proxyip` |
+| **SOCKS5** | `/?ed=2560&proxyip=socks://user:pass@host:port` 或 `/proxyip=socks://user:pass@host:port` | 使用全局 SOCKS5 出站 协议头可为socks5 |
+| **HTTP** | `/?ed=2560&proxyip=http://user:pass@host:port` 或 `/proxyip=http://user:pass@host:port` | 使用全局 HTTP/HTTPS 出站 |
 
 
-1. 比较本地 version.txt 的记录。
-
-2. 若版本不同，则自动下载并替换 \_worker.js。
-
-3. 更新 version.txt。
-
-4. 自动提交并推送到主分支（main）。
-
-5. **如果 `version.txt` 文件是自动创建的，也会一并提交到仓库。**
-
-6. **如果更新成功并提交了更改，工作流会首先查找一个名为 `_worker.js 自动更新通知` 且带有 `auto-update-status-issue` 标签的现有 Issue。如果找到，则在该 Issue 下添加一条评论，包含更新时间、版本类型和版本号；如果未找到，则创建一个新的 Issue 并添加该标签。**
-
-> 若版本一致，则不执行任何操作。
-
-## 📂 目录结构
-
+## cloudns 双向解析域名部署snippets统一使用的域名前缀
+```bash
+_acme-challenge
 ```
-edgetunnel-Automatic/
-├── .github/
-│   └── workflows/
-│       └── sync_worker.yml     ✅ 自动同步工作流
-├── _worker.js                  ✅ 自动生成的 Worker 脚本（首次运行后生成）
-├── README.md                   ✅ 可选：说明用途
 
-```
+## shadowsocks 节点参数对照图
+节点path为SSpath变量或uuid开头，示例：`/5dc15e15-f285-4a9d-959b-0e4fbdd77b63/?ed=2560`   
 
-## ⚙️ 配置说明
+带proxyip的示例：`/5dc15e15-f285-4a9d-959b-0e4fbdd77b63/?ed=2560&proxyip=xxxx`  v2rayN上设置全局socks5或http出站
 
-* 无需手动设置 Token：默认使用 GitHub 提供的 GITHUB_TOKEN 进行权限认证。
+小火箭示例: `/5dc15e15-f285-4a9d-959b-0e4fbdd77b63/proxyip=xxxx` 设置socks5或http全局出站,karing,nekobox一样设置
 
-* 如需修改同步源：编辑 .github/workflows/update_worker.yml，修改源仓库地址即可。
 
-* **更新类型配置（`update_type.txt`）：**
+## 许可证
 
-  * 在仓库根目录下创建或修改 `version.txt` 文件。
-  * 
-  * **手动触发时，您可以通过 GitHub Actions 界面选择更新类型，此选择将覆盖 `version.txt` 的设置。**
-
-* **更新成功通知：**
-
-  * 工作流在成功更新并提交代码后，会尝试复用一个特定的 GitHub _worker.js 进行通知。
-
-  * 该 Issue 的标题统一为 `_worker.js 自动更新通知`，并带有 `auto-update-status-issue` 标签。
-
-  * 如果该 _worker.js 已存在，新的更新信息将作为评论添加到该 _worker.js 中，这样可以保持通知集中在一个地方。
-
-  * 如果该 _worker.js 不存在，工作流会创建一个新的 _worker.js。
-
-  * 您可以通过关注该仓库的 Issue 动态来接收通知。
-
-## 📜 开源协议
-
-本项目使用 cmliu/edgetunnel 开源。
-
-您可以自由地使用、复制、修改和分发本项目，前提是附带原始许可证声明。
-
-## 🌐 社区与交流
-
-如果有任何问题或建议，欢迎加入我们的 Telegram 群组交流：
-
-👉 加入 Telegram 群组：<https://t.me/CMLiussss>
-## 📢 特别说明
-
-* 本仓库同步的内容来源于 [edgetunnel]([https://github.com/bia-pain-bache/BPB-Worker-Panel](https://github.com/cmliu/edgetunnel))。
-
-* 原项目版权归原作者所有，本项目仅用于自动同步更新，不对原内容进行修改。
-
-## Star Histor
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=byJoey/wk-Auto-update&type=Timeline)](https://www.star-history.com/#byJoey/wk-Auto-update&Timeline)
+GPL 2.0
