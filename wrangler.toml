@@ -1,4 +1,4 @@
-name = "edgetunnel-worker"
+name = "deepedgetunnelautomaticseek"
 main = "worker.js"
 compatibility_date = "2026-03-16"
 
