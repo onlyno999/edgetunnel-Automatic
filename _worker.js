@@ -420,6 +420,27 @@ export default {
             const url = new URL(request.url);
             const pathname = url.pathname;
             
+            // ===== FIXED: 30-DAY LINK GENERATOR ENDPOINT =====
+            if (pathname === '/generate-30day-link') {
+                const days = parseInt(url.searchParams.get('days')) || 30;
+                
+                // Generate proper token using sha224 function
+                const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
+                const hash = await sha224(yourUUID + expireTime);
+                const token = `${hash.substring(0, 16)}_exp_${expireTime}`;
+                
+                // Create the full link
+                const link = `https://${url.hostname}/${subPath}?token=${token}`;
+                
+                return new Response(JSON.stringify({ 
+                    success: true, 
+                    link: link,
+                    expires: new Date(expireTime).toLocaleString()
+                }), {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            
             // ===== TELEGRAM BOT WEBHOOK HANDLER =====
             if (pathname === '/tg-webhook') {
                 try {
@@ -1798,7 +1819,7 @@ function getMainPageContent(url, baseUrl, currentUUID) {
                     <span>V2Ray (30-day)</span>
                 </div>
                 <div class="link-content">
-                    <span class="link-url" id="expiringV2ray">Loading...</span>
+                    <span class="link-url" id="expiringV2ray">Click Generate to create 30-day link</span>
                     <button onclick="generateExpiringLink()" class="copy-btn btn-primary">
                         <i class="fas fa-clock"></i> Generate
                     </button>
@@ -1889,19 +1910,21 @@ function getMainPageContent(url, baseUrl, currentUUID) {
             window.location.href = currentUrl.toString();
         }
         
-        function generateExpiringLink() {
-            const days = 30;
-            const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
-            const uuid = document.getElementById('currentUUID').textContent;
-            
-            // Simple token generation (in production, use proper hashing)
-            const token = uuid.substring(0, 8) + '_exp_' + expireTime;
-            const baseUrl = '${baseUrl}';
-            const subPath = '${subPath}';
-            const expiringLink = baseUrl + '/' + subPath + '?token=' + token;
-            
-            document.getElementById('expiringV2ray').textContent = expiringLink;
-            copyToClipboard(expiringLink, '30-day link generated and copied!');
+        // FIXED: Generate expiring link by calling server endpoint
+        async function generateExpiringLink() {
+            try {
+                const response = await fetch('/generate-30day-link?days=30');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('expiringV2ray').textContent = data.link;
+                    copyToClipboard(data.link, '✅ 30-day link generated and copied!');
+                } else {
+                    alert('Failed to generate link');
+                }
+            } catch (error) {
+                alert('Error generating link: ' + error.message);
+            }
         }
         
         function logout() {
@@ -1911,12 +1934,6 @@ function getMainPageContent(url, baseUrl, currentUUID) {
                 window.location.href = currentUrl.toString();
             }
         }
-        
-        // Auto-copy short link on load (optional)
-        window.addEventListener('load', () => {
-            // Generate expiring link example on load
-            generateExpiringLink();
-        });
     </script>
 </body>
 </html>`;
