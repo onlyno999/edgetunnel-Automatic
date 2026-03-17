@@ -3,21 +3,19 @@
 // PROXYIP  | proxyip  代理IP
 // UUID     | uuid     UUID
 // DISABLE_TROJAN | 是否关闭Trojan, 设置为true时关闭，false开启，默认开启 
-// ADMIN_KEY | adminkey 管理员密钥，用于访问admin端点
 
 import { connect } from 'cloudflare:sockets';
 
-let subPath = 'link';     // 节点订阅路径,不修改将使用uuid作为订阅路径
-let password = '123456';  // 主页密码,建议修改或添加 PASSWORD环境变量
-let proxyIP = 'proxy.xxxxxxxx.tk:50001';  // proxyIP 格式：ip、域名、ip:port、域名:port等,没填写port，默认使用443
-let yourUUID = '5dc15e15-f285-4a9d-959b-0e4fbdd77b63'; // UUID,建议修改或添加环境便量
-let disabletro = false;  // 是否关闭trojan, 设置为true时关闭，false开启
+let subPath = 'link';
+let password = '123456';
+let proxyIP = 'proxy.xxxxxxxx.tk:50001';
+let yourUUID = '5dc15e15-f285-4a9d-959b-0e4fbdd77b63';
+let disabletro = false;
 
-// CDN 
-let cfip = [ // 格式:优选域名:端口#备注名称、优选IP:端口#备注名称、[ipv6优选]:端口#备注名称、优选域名#备注 
+let cfip = [
     'mfa.gov.ua#SG', 'saas.sin.fan#HK', 'store.ubi.com#JP','cf.130519.xyz#KR','cf.008500.xyz#HK', 
     'cf.090227.xyz#SG', 'cf.877774.xyz#HK','cdns.doon.eu.org#JP','sub.danfeng.eu.org#TW','cf.zhetengsha.eu.org#HK'
-];  // 在此感谢各位大佬维护的优选域名
+];
 
 function closeSocketQuietly(socket) { 
     try { 
@@ -49,7 +47,6 @@ function base64ToArray(b64Str) {
 function parsePryAddress(serverStr) {
     if (!serverStr) return null;
     serverStr = serverStr.trim();
-    // 解析 S5
     if (serverStr.startsWith('socks://') || serverStr.startsWith('socks5://')) {
         const urlStr = serverStr.replace(/^socks:\/\//, 'socks5://');
         try {
@@ -66,7 +63,6 @@ function parsePryAddress(serverStr) {
         }
     }
     
-    // 解析 HTTP
     if (serverStr.startsWith('http://') || serverStr.startsWith('https://')) {
         try {
             const url = new URL(serverStr);
@@ -82,7 +78,6 @@ function parsePryAddress(serverStr) {
         }
     }
     
-    // 处理 IPv6 格式 [host]:port
     if (serverStr.startsWith('[')) {
         const closeBracket = serverStr.indexOf(']');
         if (closeBracket > 0) {
@@ -199,19 +194,6 @@ function rightRotate(value, amount) {
   return (value >>> amount) | (value << (32 - amount));
 }
 
-/**
- * Generate expiring link token with custom days
- * @param {string} uuid 
- * @param {number} days 
- * @returns {Promise<string>}
- */
-async function generateExpiringToken(uuid, days) {
-    const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
-    const hash = await sha224(uuid + expireTime);
-    const shortHash = hash.substring(0, 16);
-    return `${shortHash}_exp_${expireTime}`;
-}
-
 export default {
     async fetch(request, env, ctx) {
         try {
@@ -232,134 +214,83 @@ export default {
             const url = new URL(request.url);
             const pathname = url.pathname;
             
-            // ===== SIMPLE LINK GENERATOR WITH CUSTOM EXPIRY =====
-            if (pathname === '/gen') {
+            // ===== SIMPLE 30-DAY LINK GENERATOR (NO UUID GENERATOR) =====
+            if (pathname === '/30day') {
                 const auth = url.searchParams.get('key');
                 if (auth !== password) {
                     return new Response('Unauthorized', { status: 401 });
                 }
                 
                 const days = parseInt(url.searchParams.get('days')) || 30;
-                const token = await generateExpiringToken(yourUUID, days);
-                const expiryDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toLocaleString();
-                const shortLink = `https://${url.hostname}/${subPath}?token=${token}`;
+                const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
+                const hash = await sha224(yourUUID + expireTime);
+                const token = hash.substring(0, 16) + '_exp_' + expireTime;
+                const link = `https://${url.hostname}/${subPath}?token=${token}`;
                 
-                const response = `🔗 30-DAY LINK GENERATOR
-━━━━━━━━━━━━━━━━━━━━━
-📅 Days: ${days}
-⏰ Expires: ${expiryDate}
-🔑 Token: ${token}
-
-📱 V2Ray Link:
-${shortLink}
-
-📋 Clash Link:
-https://sublink.eooce.com/clash?config=${shortLink}
-
-📦 Sing-box Link:
-https://sublink.eooce.com/singbox?config=${shortLink}
-
-━━━━━━━━━━━━━━━━━━━━━
-Save this link - it will expire after ${days} days!`;
-                
-                return new Response(response, {
-                    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                return new Response(link, {
+                    headers: { 'Content-Type': 'text/plain' }
                 });
             }
             
-            // ===== SIMPLE HTML FORM FOR EASY USE =====
+            // ===== HOME PAGE =====
             if (pathname === '/') {
                 return new Response(`<!DOCTYPE html>
 <html>
 <head>
-    <title>Link Generator</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Link Generator</title>
     <style>
-        body { font-family: Arial; background: linear-gradient(135deg, #667eea, #764ba2); min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; padding: 20px; }
-        .container { background: white; border-radius: 20px; padding: 30px; max-width: 500px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.2); }
-        h1 { color: #333; margin-bottom: 20px; text-align: center; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
-        input, select { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px; }
-        input:focus, select:focus { outline: none; border-color: #667eea; }
-        button { width: 100%; padding: 14px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s; }
-        button:hover { transform: translateY(-2px); }
-        .result { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px; display: none; word-break: break-all; }
-        .result.show { display: block; }
-        .copy-btn { margin-top: 10px; padding: 8px; background: #48bb78; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        .info { margin-top: 20px; padding: 15px; background: #e3f2fd; border-radius: 8px; color: #1565c0; }
+        body { font-family: Arial; max-width: 600px; margin: 50px auto; padding: 20px; }
+        input, select, button { padding: 10px; margin: 5px; width: 100%; }
+        .link { background: #f0f0f0; padding: 15px; word-break: break-all; display: none; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔗 30-Day Link Generator</h1>
-        <div class="info">
-            <strong>Your UUID:</strong> ${yourUUID}<br>
-            <strong>Permanent Link:</strong> https://${url.hostname}/${subPath}
-        </div>
-        <div class="form-group">
-            <label>Password:</label>
-            <input type="password" id="password" placeholder="Enter your password">
-        </div>
-        <div class="form-group">
-            <label>Days until expiry:</label>
-            <select id="days">
-                <option value="1">1 day</option>
-                <option value="7">7 days</option>
-                <option value="15">15 days</option>
-                <option value="30" selected>30 days</option>
-                <option value="60">60 days</option>
-                <option value="90">90 days</option>
-            </select>
-        </div>
-        <button onclick="generateLink()">Generate 30-Day Link</button>
-        
-        <div class="result" id="result">
-            <strong>Your 30-Day Link:</strong><br>
-            <span id="link"></span><br>
-            <strong>Expires:</strong> <span id="expiry"></span><br>
-            <button class="copy-btn" onclick="copyLink()">Copy to Clipboard</button>
-        </div>
+    <h2>30-Day Link Generator</h2>
+    <p>Your UUID: <strong>${yourUUID}</strong></p>
+    <p>Permanent link: <a href="https://${url.hostname}/${subPath}">https://${url.hostname}/${subPath}</a></p>
+    
+    <hr>
+    
+    <input type="password" id="password" placeholder="Enter password">
+    <select id="days">
+        <option value="7">7 days</option>
+        <option value="15">15 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="60">60 days</option>
+        <option value="90">90 days</option>
+    </select>
+    <button onclick="getLink()">Generate 30-Day Link</button>
+    
+    <div class="link" id="linkBox">
+        <strong>Your 30-day link:</strong><br>
+        <span id="link"></span><br>
+        <button onclick="copyLink()">Copy to clipboard</button>
     </div>
     
     <script>
-        async function generateLink() {
+        async function getLink() {
             const password = document.getElementById('password').value;
             const days = document.getElementById('days').value;
             
             if (!password) {
-                alert('Please enter your password');
+                alert('Enter password');
                 return;
             }
             
-            try {
-                const response = await fetch(\`/gen?key=\${encodeURIComponent(password)}&days=\${days}\`);
-                const text = await response.text();
-                
-                // Extract the V2Ray link from the response
-                const match = text.match(/https:[^\\s]+/);
-                if (match) {
-                    document.getElementById('link').textContent = match[0];
-                    
-                    // Extract expiry date
-                    const expiryMatch = text.match(/Expires: ([^\\n]+)/);
-                    if (expiryMatch) {
-                        document.getElementById('expiry').textContent = expiryMatch[1];
-                    }
-                    
-                    document.getElementById('result').classList.add('show');
-                }
-            } catch (e) {
-                alert('Error generating link: ' + e.message);
+            const response = await fetch(\`/30day?key=\${encodeURIComponent(password)}&days=\${days}\`);
+            if (response.ok) {
+                const link = await response.text();
+                document.getElementById('link').textContent = link;
+                document.getElementById('linkBox').style.display = 'block';
+            } else {
+                alert('Error: ' + response.status);
             }
         }
         
         function copyLink() {
             const link = document.getElementById('link').textContent;
-            navigator.clipboard.writeText(link).then(() => {
-                alert('Link copied to clipboard!');
-            });
+            navigator.clipboard.writeText(link);
+            alert('Copied!');
         }
     </script>
 </body>
@@ -421,7 +352,6 @@ Save this link - it will expire after ${days} days!`;
                     const vlsHeader = 'v' + 'l' + 'e' + 's' + 's';
                     const troHeader = 't' + 'r' + 'o' + 'j' + 'a' + 'n';
                     
-                    // Generate VLESS nodes
                     const vlsLinks = cfip.map(cdnItem => {
                         let host, port = 443, nodeName = '';
                         if (cdnItem.includes('#')) {
@@ -447,7 +377,6 @@ Save this link - it will expire after ${days} days!`;
                         return `${vlsHeader}://${yourUUID}@${host}:${port}?encryption=none&security=tls&sni=${currentDomain}&fp=firefox&allowInsecure=0&type=ws&host=${currentDomain}&path=%2F%3Fed%3D2560#${vlsNodeName}`;
                     });
                     
-                    // Generate Trojan nodes
                     let allLinks = [...vlsLinks];
                     if (!disabletro) {
                         const troLinks = cfip.map(cdnItem => {
@@ -488,14 +417,9 @@ Save this link - it will expire after ${days} days!`;
             }
             return new Response('Not Found', { status: 404 });
         } catch (err) {
-            return new Response('Internal Server Error: ' + err.message, { status: 500 });
+            return new Response('Error: ' + err.message, { status: 500 });
         }
     },
 };
 
-// [All the helper functions remain exactly the same - handleVlsRequest, parsetroHeader, 
-//  connect2Socks5, connect2Http, forwardataTCP, parseVLsPacketHeader,
-//  makeReadableStr, connectStreams, forwardataudp - keep them all here]
-
-// Include ALL the helper functions from your original code here...
-// (I'm omitting them for brevity, but you need to keep all of them)
+// All helper functions (handleVlsRequest, parsetroHeader, etc.) go here - keep them exactly as in your original code
