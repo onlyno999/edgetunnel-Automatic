@@ -250,6 +250,22 @@ export default {
             const url = new URL(request.url);
             const pathname = url.pathname;
             
+            // ===== SIMPLE 30-DAY LINK GENERATOR (NO ADMIN PANEL NEEDED) =====
+            if (pathname === '/get-30day') {
+                const providedPassword = url.searchParams.get('password');
+                if (providedPassword !== password) {
+                    return new Response('Unauthorized', { status: 401 });
+                }
+                
+                const days = parseInt(url.searchParams.get('days')) || 30;
+                const token = await generateExpiringToken(yourUUID, days);
+                const thirtyDayLink = `https://${url.hostname}/${subPath}?token=${token}`;
+                
+                return new Response(thirtyDayLink, {
+                    headers: { 'Content-Type': 'text/plain' }
+                });
+            }
+            
             // ===== ADMIN ENDPOINTS =====
             
             // Admin - Generate expiring links
