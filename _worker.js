@@ -6,16 +6,17 @@
 
 import { connect } from 'cloudflare:sockets';
 
-let subPath = 'link';
-let password = '123456';
-let proxyIP = 'proxy.xxxxxxxx.tk:50001';
-let yourUUID = '5dc15e15-f285-4a9d-959b-0e4fbdd77b63';
-let disabletro = false;
+let subPath = 'link';     // 节点订阅路径,不修改将使用uuid作为订阅路径
+let password = '123456';  // 主页密码,建议修改或添加 PASSWORD环境变量
+let proxyIP = 'proxy.xxxxxxxx.tk:50001';  // proxyIP 格式：ip、域名、ip:port、域名:port等,没填写port，默认使用443
+let yourUUID = '5dc15e15-f285-4a9d-959b-0e4fbdd77b63'; // UUID,建议修改或添加环境便量
+let disabletro = false;  // 是否关闭trojan, 设置为true时关闭，false开启 
 
-let cfip = [
+// CDN 
+let cfip = [ // 格式:优选域名:端口#备注名称、优选IP:端口#备注名称、[ipv6优选]:端口#备注名称、优选域名#备注 
     'mfa.gov.ua#SG', 'saas.sin.fan#HK', 'store.ubi.com#JP','cf.130519.xyz#KR','cf.008500.xyz#HK', 
     'cf.090227.xyz#SG', 'cf.877774.xyz#HK','cdns.doon.eu.org#JP','sub.danfeng.eu.org#TW','cf.zhetengsha.eu.org#HK'
-];
+];  // 在此感谢各位大佬维护的优选域名
 
 function closeSocketQuietly(socket) { 
     try { 
@@ -47,6 +48,7 @@ function base64ToArray(b64Str) {
 function parsePryAddress(serverStr) {
     if (!serverStr) return null;
     serverStr = serverStr.trim();
+    // 解析 S5
     if (serverStr.startsWith('socks://') || serverStr.startsWith('socks5://')) {
         const urlStr = serverStr.replace(/^socks:\/\//, 'socks5://');
         try {
@@ -63,6 +65,7 @@ function parsePryAddress(serverStr) {
         }
     }
     
+    // 解析 HTTP
     if (serverStr.startsWith('http://') || serverStr.startsWith('https://')) {
         try {
             const url = new URL(serverStr);
@@ -78,6 +81,7 @@ function parsePryAddress(serverStr) {
         }
     }
     
+    // 处理 IPv6 格式 [host]:port
     if (serverStr.startsWith('[')) {
         const closeBracket = serverStr.indexOf(']');
         if (closeBracket > 0) {
@@ -194,13 +198,32 @@ function rightRotate(value, amount) {
   return (value >>> amount) | (value << (32 - amount));
 }
 
+// ===== ADDED: Generate expiring token with custom days =====
+/**
+ * Generate expiring token with custom days
+ * @param {number} days 
+ * @returns {Promise<string>}
+ */
+async function generateTimeToken(days) {
+    const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
+    const hash = await sha224(yourUUID + expireTime);
+    return hash.substring(0, 16) + '_exp_' + expireTime;
+}
+// ===== END ADDED =====
+
 export default {
+	/**
+	 * @param {import("@cloudflare/workers-types").Request} request
+	 * @param {{UUID: string, uuid: string, PROXYIP: string, PASSWORD: string, PASSWD: string, password: string, proxyip: string, proxyIP: string, SUB_PATH: string, subpath: string, DISABLE_TROJAN: string, CLOSE_TROJAN: string}} env
+	 * @param {import("@cloudflare/workers-types").ExecutionContext} ctx
+	 * @returns {Promise<Response>}
+	 */
     async fetch(request, env, ctx) {
         try {
 
-            if (subPath === 'link' || subPath === '') {
-                subPath = yourUUID;
-            }
+			if (subPath === 'link' || subPath === '') {
+				subPath = yourUUID;
+			}
 
             if (env.PROXYIP || env.proxyip || env.proxyIP) {
                 const servers = (env.PROXYIP || env.proxyip || env.proxyIP).split(',').map(s => s.trim());
@@ -214,107 +237,39 @@ export default {
             const url = new URL(request.url);
             const pathname = url.pathname;
             
-            // ===== ONLY 30-DAY LINK GENERATOR - NO UUID GENERATOR =====
-            if (pathname === '/30day') {
+            // ===== ADDED: Simple token generator endpoint =====
+            if (pathname === '/gentoken') {
                 const auth = url.searchParams.get('key');
                 if (auth !== password) {
                     return new Response('Unauthorized', { status: 401 });
                 }
                 
                 const days = parseInt(url.searchParams.get('days')) || 30;
-                const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
-                const hash = await sha224(yourUUID + expireTime);
-                const token = hash.substring(0, 16) + '_exp_' + expireTime;
+                const token = await generateTimeToken(days);
                 const link = `https://${url.hostname}/${subPath}?token=${token}`;
                 
-                // Return ONLY the link - nothing else
-                return new Response(link, {
+                return new Response(link + '\n', {
                     headers: { 'Content-Type': 'text/plain' }
                 });
             }
+            // ===== END ADDED =====
             
-            // ===== SIMPLE HOME PAGE - NO UUID GENERATOR =====
-            if (pathname === '/') {
-                return new Response(`<!DOCTYPE html>
-<html>
-<head>
-    <title>30-Day Link Generator</title>
-    <style>
-        body { font-family: Arial; max-width: 500px; margin: 50px auto; padding: 20px; }
-        input, select, button { width: 100%; padding: 10px; margin: 10px 0; }
-        .link { background: #f0f0f0; padding: 15px; word-break: break-all; display: none; }
-        .permanent { background: #e3f2fd; padding: 10px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <h2>30-Day Link Generator</h2>
-    
-    <div class="permanent">
-        <strong>Permanent Link:</strong><br>
-        <a href="https://${url.hostname}/${subPath}">https://${url.hostname}/${subPath}</a>
-    </div>
-    
-    <input type="password" id="password" placeholder="Enter password">
-    
-    <select id="days">
-        <option value="1">1 day (test)</option>
-        <option value="7">7 days</option>
-        <option value="15">15 days</option>
-        <option value="30" selected>30 days</option>
-        <option value="60">60 days</option>
-        <option value="90">90 days</option>
-    </select>
-    
-    <button onclick="getLink()">Generate 30-Day Link</button>
-    
-    <div class="link" id="linkBox">
-        <strong>Your 30-day link:</strong><br>
-        <span id="link"></span><br>
-        <button onclick="copyLink()">Copy to clipboard</button>
-    </div>
-    
-    <script>
-        async function getLink() {
-            const password = document.getElementById('password').value;
-            const days = document.getElementById('days').value;
-            
-            if (!password) {
-                alert('Please enter password');
-                return;
-            }
-            
-            const response = await fetch(\`/30day?key=\${encodeURIComponent(password)}&days=\${days}\`);
-            if (response.ok) {
-                const link = await response.text();
-                document.getElementById('link').textContent = link;
-                document.getElementById('linkBox').style.display = 'block';
-            } else {
-                alert('Error: ' + response.status);
-            }
-        }
-        
-        function copyLink() {
-            const link = document.getElementById('link').textContent;
-            navigator.clipboard.writeText(link);
-            alert('Copied!');
-        }
-    </script>
-</body>
-</html>`, {
-                    headers: { 'Content-Type': 'text/html' }
-                });
-            }
-            
-            // ===== PROXY HANDLING =====
             let pathProxyIP = null;
             if (pathname.startsWith('/proxyip=')) {
                 try {
                     pathProxyIP = decodeURIComponent(pathname.substring(9)).trim();
-                } catch (e) {}
+                } catch (e) {
+                    // 忽略错误
+                }
 
                 if (pathProxyIP && !request.headers.get('Upgrade')) {
                     proxyIP = pathProxyIP;
-                    return new Response(`set proxyIP to: ${proxyIP}\n\n`);
+                    return new Response(`set proxyIP to: ${proxyIP}\n\n`, {
+                        headers: { 
+                            'Content-Type': 'text/plain; charset=utf-8',
+                            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                        },
+                    });
                 }
             }
 
@@ -323,38 +278,48 @@ export default {
                 if (pathname.startsWith('/proxyip=')) {
                     try {
                         wsPathProxyIP = decodeURIComponent(pathname.substring(9)).trim();
-                    } catch (e) {}
+                    } catch (e) {
+                        // 忽略错误
+                    }
                 }
                 
                 const customProxyIP = wsPathProxyIP || url.searchParams.get('proxyip') || request.headers.get('proxyip');
                 return await handleVlsRequest(request, customProxyIP);
-            } 
-            
-            // ===== SUBSCRIPTION ENDPOINT WITH EXPIRATION CHECK =====
-            else if (request.method === 'GET') {
+            } else if (request.method === 'GET') {
+                if (url.pathname === '/') {
+                    return getHomePage(request);
+                }
+                
                 if (url.pathname.toLowerCase().includes(`/${subPath.toLowerCase()}`)) {
                     
-                    // Check for token expiration
+                    // ===== ADDED: Check for token expiration =====
                     const token = url.searchParams.get('token');
                     if (token && token.includes('_exp_')) {
                         try {
                             const [originalToken, expireTime] = token.split('_exp_');
                             if (Date.now() > parseInt(expireTime)) {
-                                return new Response('Link expired', { status: 403 });
+                                return new Response('❌ Link expired. Please generate a new one.', { 
+                                    status: 403,
+                                    headers: { 'Content-Type': 'text/plain' }
+                                });
                             }
                             
+                            // Verify token
                             const expectedHash = await sha224(yourUUID + expireTime);
                             if (originalToken !== expectedHash.substring(0, 16)) {
                                 return new Response('Invalid token', { status: 403 });
                             }
-                        } catch (e) {}
+                        } catch (e) {
+                            console.log('Token check failed:', e);
+                        }
                     }
+                    // ===== END ADDED =====
                     
-                    // Generate VLESS and Trojan nodes
                     const currentDomain = url.hostname;
                     const vlsHeader = 'v' + 'l' + 'e' + 's' + 's';
                     const troHeader = 't' + 'r' + 'o' + 'j' + 'a' + 'n';
                     
+                    // 生成 VLE-SS 节点
                     const vlsLinks = cfip.map(cdnItem => {
                         let host, port = 443, nodeName = '';
                         if (cdnItem.includes('#')) {
@@ -380,6 +345,7 @@ export default {
                         return `${vlsHeader}://${yourUUID}@${host}:${port}?encryption=none&security=tls&sni=${currentDomain}&fp=firefox&allowInsecure=0&type=ws&host=${currentDomain}&path=%2F%3Fed%3D2560#${vlsNodeName}`;
                     });
                     
+                    // 生成 Tro-jan 节点
                     let allLinks = [...vlsLinks];
                     if (!disabletro) {
                         const troLinks = cfip.map(cdnItem => {
@@ -408,22 +374,31 @@ export default {
                         });
                         allLinks = [...vlsLinks, ...troLinks];
                     }
-                    
                     const linksText = allLinks.join('\n');
                     const base64Content = btoa(unescape(encodeURIComponent(linksText)));
                     return new Response(base64Content, {
-                        headers: { 'Content-Type': 'text/plain' }
+                        headers: { 
+                            'Content-Type': 'text/plain; charset=utf-8',
+                            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+                        },
                     });
                 }
             }
-            
             return new Response('Not Found', { status: 404 });
         } catch (err) {
-            return new Response('Error: ' + err.message, { status: 500 });
+            return new Response('Internal Server Error', { status: 500 });
         }
     },
 };
 
+// [All your existing helper functions remain exactly the same - handleVlsRequest, parsetroHeader, 
+//  connect2Socks5, connect2Http, forwardataTCP, parseVLsPacketHeader,
+//  makeReadableStr, connectStreams, forwardataudp, getHomePage,
+//  getLoginPage, getMainPageContent remain exactly as they are]
+
+/**
+ * @param {import("@cloudflare/workers-types").Request} request
+ */
 async function handleVlsRequest(request, customProxyIP) {
     const wssPair = new WebSocketPair();
     const [clientSock, serverSock] = Object.values(wssPair);
@@ -868,4 +843,729 @@ async function forwardataudp(udpChunk, webSocket, respHeader) {
     } catch (error) {
         // console.error('UDP forward error:', error);
     }
+}
+
+/**
+ * @param {import("@cloudflare/workers-types").Request} request
+ * @returns {Response}
+ */
+function getHomePage(request) {
+	const url = request.headers.get('Host');
+	const baseUrl = `https://${url}`;
+	const urlObj = new URL(request.url);
+	const providedPassword = urlObj.searchParams.get('password');
+	if (providedPassword) {
+		if (providedPassword === password) {
+			return getMainPageContent(url, baseUrl);
+		} else {
+			return getLoginPage(url, baseUrl, true);
+		}
+	}
+	return getLoginPage(url, baseUrl, false);
+}
+
+/**
+ * 获取登录页面
+ * @param {string} url 
+ * @param {string} baseUrl 
+ * @param {boolean} showError 
+ * @returns {Response}
+ */
+function getLoginPage(url, baseUrl, showError = false) {
+	const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workers Service - 登录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #7dd3ca 0%, #a17ec4 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        
+        .login-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 95%;
+            text-align: center;
+        }
+        
+        .logo {
+            margin-bottom: -20px;
+            background: linear-gradient(135deg, #7dd3ca 0%, #a17ec4 100%)
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .title {
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            color: #2d3748;
+        }
+        
+        .subtitle {
+            color: #718096;
+            margin-bottom: 30px;
+            font-size: 1rem;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            background: #fff;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn-login {
+            width: 100%;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #12cd9e 0%, #a881d0 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .error-message {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #e53e3e;
+        }
+        
+        .footer {
+            margin-top: 20px;
+            color: #718096;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 30px 20px;
+                margin: 10px;
+            }
+            
+            .logo {
+                font-size: 2.5rem;
+            }
+            
+            .title {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo"><img src="https://img.icons8.com/color/96/cloudflare.png" alt="Logo"></div>
+        <h1 class="title">Workers Service</h1>
+        <p class="subtitle">请输入密码以访问服务</p>
+        
+        ${showError ? '<div class="error-message">密码错误,请重试</div>' : ''}
+        
+        <form onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <input 
+                    type="password" 
+                    id="password" 
+                    name="password" 
+                    class="form-input" 
+                    placeholder="请输入密码"
+                    required
+                    autofocus
+                >
+            </div>
+            <button type="submit" class="btn-login">登录</button>
+        </form>
+        
+        <div class="footer">
+            <p>Powered by eooce <a href="https://t.me/eooceu" target="_blank" style="color: #007bff; text-decoration: none;">Join Telegram group</a></p>
+        </div>
+    </div>
+    
+    <script>
+        function handleLogin(event) {
+            event.preventDefault();
+            const password = document.getElementById('password').value;
+            const currentUrl = new URL(window.location);
+            currentUrl.searchParams.set('password', password);
+            window.location.href = currentUrl.toString();
+        }
+    </script>
+</body>
+</html>`;
+
+	return new Response(html, {
+		status: 200,
+		headers: {
+			'Content-Type': 'text/html;charset=utf-8',
+			'Cache-Control': 'no-cache, no-store, must-revalidate',
+		},
+	});
+}
+
+/**
+ * 获取主页内容(密码验证通过后显示)
+ * @param {string} url 
+ * @param {string} baseUrl 
+ * @returns {Response}
+ */
+function getMainPageContent(url, baseUrl) {
+	const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workers Service</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #66ead7 0%, #9461c8 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 95%;
+            max-height: 90vh;
+            text-align: center;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        
+        .logout-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #a7a0d8;
+            color: #dc2929;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+        
+        .logout-btn i {
+            font-size: 0.9rem;
+        }
+        
+        .logout-btn:hover {
+            background: #e0e0e0;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .logo {
+            margin-bottom: -10px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .title {
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            color: #2d3748;
+        }
+        
+        .subtitle {
+            color: #718096;
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+        
+        .info-card {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 3px solid #6ed8c9;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.9rem;
+        }
+        
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        
+        .label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        .value {
+            color:rgb(20, 23, 29);
+            font-family: 'Courier New', monospace;
+            background: #edf2f7;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 15px 0;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+            min-width: 100px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(45deg, #68e3d6, #906cc9);
+            color: #001379;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+        
+        .status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #48bb78;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .footer {
+            margin-top: 10px;
+            color: #718096;
+            font-size: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .footer-links {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .footer-link {
+            color: #667eea;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        
+        .footer-link:hover {
+            background: rgba(102, 126, 234, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        .github-icon {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+        
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background:rgb(244, 252, 247);
+            border-left: 4px solid #48bb78;
+            border-radius: 8px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s ease;
+            max-width: 300px;
+        }
+        
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .toast-icon {
+            width: 20px;
+            height: 20px;
+            background: #48bb78;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .toast-message {
+            color: #2d3748;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+                margin: 10px;
+                max-height: 95vh;
+            }
+            
+            .logout-btn {
+                top: 15px;
+                right: 15px;
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+            
+            .logo {
+                font-size: 2rem;
+            }
+            
+            .title {
+                font-size: 1.5rem;
+            }
+            
+            .button-group {
+                flex-direction: column;
+                align-items: center;
+                gap: 8px;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 180px;
+                padding: 8px 16px;
+                font-size: 0.85rem;
+            }
+            
+            .info-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+            
+            .value {
+                word-break: break-all;
+                font-size: 0.8rem;
+            }
+            
+            .footer-links {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+                margin: 5px;
+            }
+            
+            .info-card {
+                padding: 10px;
+            }
+            
+            .toast {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+                transform: translateY(-100%);
+            }
+            
+            .toast.show {
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <button onclick="logout()" class="logout-btn">
+        <i class="fas fa-sign-out-alt"></i>
+        <span>退出登录</span>
+    </button>
+    
+    <div class="container">
+        <div class="logo"><img src="https://img.icons8.com/color/96/cloudflare.png" alt="Logo"></div>
+        <h1 class="title">Workers Service</h1>
+        <p class="subtitle">基于 Cloudflare Workers 的高性能网络服务 (VLESS + Trojan)</p>
+        
+        <div class="info-card">
+            <div class="info-item">
+                <span class="label">服务状态</span>
+                <span class="value"><span class="status"></span>运行中</span>
+            </div>
+            <div class="info-item">
+                <span class="label">主机地址</span>
+                <span class="value">${url}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">UUID</span>
+                <span class="value">${yourUUID}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">V2rayN订阅地址</span>
+                <span class="value">${baseUrl}/${subPath}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">Clash订阅地址</span>
+                <span class="value">https://sublink.eooce.com/clash?config=${baseUrl}/${subPath}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">singbox订阅地址</span>
+                <span class="value">https://sublink.eooce.com/singbox?config=${baseUrl}/${subPath}</span>
+            </div>
+        </div>
+        
+        <div class="button-group">
+            <button onclick="copySingboxSubscription()" class="btn btn-secondary">复制singbox订阅链接</button>
+            <button onclick="copyClashSubscription()" class="btn btn-secondary">复制Clash订阅链接</button>
+            <button onclick="copySubscription()" class="btn btn-secondary">复制V2rayN订阅链接</button>
+        </div>
+        
+        <div class="footer">
+            <div class="footer-links">
+                <a href="https://github.com/eooce/CF-Workers-VLESS" target="_blank" class="footer-link">
+                    <svg class="github-icon" viewBox="0 0 24 24">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.479-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    <span>GitHub 项目地址</span>
+                </a>
+                <a href="https://check-proxyip.ssss.nyc.mn/" target="_blank" class="footer-link">
+                    <span>✅</span>
+                    <span>Proxyip 检测服务</span>
+                </a>
+                <a href="https://t.me/eooceu" target="_blank" class="footer-link">
+                    <span>📱</span>
+                    <span>Telegram 反馈交流群</span>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showToast(message) {
+            const existingToast = document.querySelector('.toast');
+            if (existingToast) {
+                existingToast.remove();
+            }
+            
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            
+            const icon = document.createElement('div');
+            icon.className = 'toast-icon';
+            icon.textContent = '✓';
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'toast-message';
+            messageDiv.textContent = message;
+            
+            toast.appendChild(icon);
+            toast.appendChild(messageDiv);
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }, 1500);
+        }
+        
+        function copySubscription() {
+            const configUrl = '${baseUrl}/${subPath}';
+            navigator.clipboard.writeText(configUrl).then(() => {
+                showToast('V2rayN订阅链接已复制到剪贴板!');
+            }).catch(() => {
+                const textArea = document.createElement('textarea');
+                textArea.value = configUrl;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast('V2rayN订阅链接已复制到剪贴板!');
+            });
+        }
+        
+        function copyClashSubscription() {
+            const clashUrl = 'https://sublink.eooce.com/clash?config=${baseUrl}/${subPath}';
+            navigator.clipboard.writeText(clashUrl).then(() => {
+                showToast('Clash订阅链接已复制到剪贴板!');
+            }).catch(() => {
+                const textArea = document.createElement('textarea');
+                textArea.value = clashUrl;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast('Clash订阅链接已复制到剪贴板!');
+            });
+        }
+        
+        function copySingboxSubscription() {
+            const singboxUrl = 'https://sublink.eooce.com/singbox?config=${baseUrl}/${subPath}';
+            navigator.clipboard.writeText(singboxUrl).then(() => {
+                showToast('singbox订阅链接已复制到剪贴板!');
+            }).catch(() => {
+                const textArea = document.createElement('textarea');
+                textArea.value = singboxUrl;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast('singbox订阅链接已复制到剪贴板!');
+            });
+        }
+        
+        function logout() {
+            if (confirm('确定要退出登录吗?')) {
+                const currentUrl = new URL(window.location);
+                currentUrl.searchParams.delete('password');
+                window.location.href = currentUrl.toString();
+            }
+        }
+    </script>
+</body>
+</html>`;
+
+	return new Response(html, {
+		status: 200,
+		headers: {
+			'Content-Type': 'text/html;charset=utf-8',
+			'Cache-Control': 'no-cache, no-store, must-revalidate',
+		},
+	});
 }
