@@ -198,6 +198,19 @@ function rightRotate(value, amount) {
   return (value >>> amount) | (value << (32 - amount));
 }
 
+// ===== ADDED: Generate expiring token with custom days =====
+/**
+ * Generate expiring token with custom days
+ * @param {number} days 
+ * @returns {Promise<string>}
+ */
+async function generateTimeToken(days) {
+    const expireTime = Date.now() + (days * 24 * 60 * 60 * 1000);
+    const hash = await sha224(yourUUID + expireTime);
+    return hash.substring(0, 16) + '_exp_' + expireTime;
+}
+// ===== END ADDED =====
+
 export default {
 	/**
 	 * @param {import("@cloudflare/workers-types").Request} request
@@ -223,6 +236,23 @@ export default {
             
             const url = new URL(request.url);
             const pathname = url.pathname;
+            
+            // ===== ADDED: Simple token generator endpoint =====
+            if (pathname === '/gentoken') {
+                const auth = url.searchParams.get('key');
+                if (auth !== password) {
+                    return new Response('Unauthorized', { status: 401 });
+                }
+                
+                const days = parseInt(url.searchParams.get('days')) || 30;
+                const token = await generateTimeToken(days);
+                const link = `https://${url.hostname}/${subPath}?token=${token}`;
+                
+                return new Response(link + '\n', {
+                    headers: { 'Content-Type': 'text/plain' }
+                });
+            }
+            // ===== END ADDED =====
             
             let pathProxyIP = null;
             if (pathname.startsWith('/proxyip=')) {
@@ -261,6 +291,30 @@ export default {
                 }
                 
                 if (url.pathname.toLowerCase().includes(`/${subPath.toLowerCase()}`)) {
+                    
+                    // ===== ADDED: Check for token expiration =====
+                    const token = url.searchParams.get('token');
+                    if (token && token.includes('_exp_')) {
+                        try {
+                            const [originalToken, expireTime] = token.split('_exp_');
+                            if (Date.now() > parseInt(expireTime)) {
+                                return new Response('❌ Link expired. Please generate a new one.', { 
+                                    status: 403,
+                                    headers: { 'Content-Type': 'text/plain' }
+                                });
+                            }
+                            
+                            // Verify token
+                            const expectedHash = await sha224(yourUUID + expireTime);
+                            if (originalToken !== expectedHash.substring(0, 16)) {
+                                return new Response('Invalid token', { status: 403 });
+                            }
+                        } catch (e) {
+                            console.log('Token check failed:', e);
+                        }
+                    }
+                    // ===== END ADDED =====
+                    
                     const currentDomain = url.hostname;
                     const vlsHeader = 'v' + 'l' + 'e' + 's' + 's';
                     const troHeader = 't' + 'r' + 'o' + 'j' + 'a' + 'n';
@@ -337,8 +391,12 @@ export default {
     },
 };
 
+// [All your existing helper functions remain exactly the same - handleVlsRequest, parsetroHeader, 
+//  connect2Socks5, connect2Http, forwardataTCP, parseVLsPacketHeader,
+//  makeReadableStr, connectStreams, forwardataudp, getHomePage,
+//  getLoginPage, getMainPageContent remain exactly as they are]
+
 /**
- * 
  * @param {import("@cloudflare/workers-types").Request} request
  */
 async function handleVlsRequest(request, customProxyIP) {

@@ -1,0 +1,11 @@
+name = "automaticsub"
+main = "worker.js"
+compatibility_date = "2026-03-16"
+
+# Environment variables (optional)
+[vars]
+PASSWORD = "your-password-here"
+UUID = "your-uuid-here"
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
