@@ -17,10 +17,11 @@ let cfip = [ // 格式:优选域名:端口#备注名称、优选IP:端口#备注
     'mfa.gov.ua#SG', 'saas.sin.fan#HK', 'store.ubi.com#JP','cf.130519.xyz#KR','cf.008500.xyz#HK', 
     'cf.090227.xyz#SG', 'cf.877774.xyz#HK','cdns.doon.eu.org#JP','sub.danfeng.eu.org#TW','cf.zhetengsha.eu.org#HK'
 ];  // 在此感谢各位大佬维护的优选域名
-
+const WS_READY_STATE_OPEN = 1;
+const WS_READY_STATE_CLOSING = 2;
 function closeSocketQuietly(socket) { 
     try { 
-        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+        if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
             socket.close(); 
         }
     } catch (error) {} 
@@ -343,8 +344,10 @@ export default {
  */
 async function handleVlsRequest(request, customProxyIP) {
     const wssPair = new WebSocketPair();
-    const [clientSock, serverSock] = Object.values(wssPair);
+    const clientSock = wssPair[0];
+    const serverSock = wssPair[1];
     serverSock.accept();
+    serverSock.binaryType = 'arraybuffer';
     let remoteConnWrapper = { socket: null };
     let isDnsQuery = false;
     let isTrojan = false;
@@ -712,8 +715,13 @@ function makeReadableStr(socket, earlyDataHeader) {
     let cancelled = false;
     return new ReadableStream({
         start(controller) {
-            socket.addEventListener('message', (event) => { 
-                if (!cancelled) controller.enqueue(event.data); 
+            socket.addEventListener('message', async (event) => {
+                if (cancelled) return;
+                let data = event.data;
+                if (data instanceof Blob) {
+                    data = await data.arrayBuffer();
+                }
+                controller.enqueue(data);
             });
             socket.addEventListener('close', () => { 
                 if (!cancelled) { 
@@ -723,8 +731,13 @@ function makeReadableStr(socket, earlyDataHeader) {
             });
             socket.addEventListener('error', (err) => controller.error(err));
             const { earlyData, error } = base64ToArray(earlyDataHeader);
-            if (error) controller.error(error); 
-            else if (earlyData) controller.enqueue(earlyData);
+            if (error) {
+                Promise.resolve().then(() => controller.error(error));
+            } else if (earlyData) {
+                Promise.resolve().then(() => {
+                    if (!cancelled) controller.enqueue(earlyData);
+                });
+            }
         },
         cancel() { 
             cancelled = true; 
@@ -737,9 +750,11 @@ async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
     let header = headerData, hasData = false;
     await remoteSocket.readable.pipeTo(
         new WritableStream({
-            async write(chunk, controller) {
+            async write(chunk) {
                 hasData = true;
-                if (webSocket.readyState !== WebSocket.OPEN) controller.error('ws.readyState is not open');
+                if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+                    throw new Error('ws.readyState is not open');
+                }
                 if (header) { 
                     const response = new Uint8Array(header.length + chunk.byteLength);
                     response.set(header, 0);
@@ -769,7 +784,7 @@ async function forwardataudp(udpChunk, webSocket, respHeader) {
         writer.releaseLock();
         await tcpSocket.readable.pipeTo(new WritableStream({
             async write(chunk) {
-                if (webSocket.readyState === WebSocket.OPEN) {
+                if (webSocket.readyState === WS_READY_STATE_OPEN) {
                     if (vlessHeader) { 
                         const response = new Uint8Array(vlessHeader.length + chunk.byteLength);
                         response.set(vlessHeader, 0);
