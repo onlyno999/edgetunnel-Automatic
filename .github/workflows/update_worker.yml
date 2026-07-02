@@ -1,106 +1,52 @@
-name: Smart Mirror Bot (eooce/Cloudflare-proxy)
+name: Daily Sync _worker.js from eooce/Cloudflare-proxy
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+schedule:
+- cron: '0 0 * * *'  # 每天 UTC 零点运行
+workflow_dispatch:      # 支持手动触发
 
 jobs:
-  mirror:
-    runs-on: ubuntu-latest
+sync-worker:
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+steps:  
+  - name: 检出当前仓库代码  
+    uses: actions/checkout@v3  
 
-      # ==============================
-      # 🧠 获取 upstream 最新 commit
-      # ==============================
-      - name: Get upstream commit info
-        id: upstream
-        run: |
-          data=$(curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main)
+  - name: 获取上游最新 commit SHA  
+    id: get_sha  
+    run: |  
+      curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main \  
+        | grep '"sha"' | head -n 1 | cut -d '"' -f 4 > upstream_sha.txt  
+      echo "sha=$(cat upstream_sha.txt)" >> $GITHUB_OUTPUT  
 
-          sha=$(echo "$data" | jq -r '.sha')
-          msg=$(echo "$data" | jq -r '.commit.message' | head -c 120)
+  - name: 检查是否需要更新  
+    id: check_update  
+    run: |  
+      if [ ! -f version.txt ]; then  
+        echo "首次运行，需更新"  
+        echo "need_update=true" >> $GITHUB_OUTPUT  
+      elif ! cmp -s upstream_sha.txt version.txt; then  
+        echo "上游有新版本，需更新"  
+        echo "need_update=true" >> $GITHUB_OUTPUT  
+      else  
+        echo "版本未变，无需更新"  
+        echo "need_update=false" >> $GITHUB_OUTPUT  
+      fi  
 
-          echo "sha=$sha" >> $GITHUB_OUTPUT
-          echo "msg=$msg" >> $GITHUB_OUTPUT
+  - name: 同步 _worker.js 并更新 version.txt  
+    if: steps.check_update.outputs.need_update == 'true'  
+    run: |  
+      git clone --depth=1 https://github.com/eooce/Cloudflare-proxy.git upstream_repo  
+      cp upstream_repo/_worker.js _worker.js  
+      cp upstream_sha.txt version.txt  
+      echo "updated=true" >> $GITHUB_ENV  
 
-      # ==============================
-      # 📦 判断是否需要更新
-      # ==============================
-      - name: Check update
-        id: check
-        run: |
-          if [ ! -s version.txt ]; then
-            echo "need_update=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          local_sha=$(cat version.txt)
-          if [ "$local_sha" != "${{ steps.upstream.outputs.sha }}" ]; then
-            echo "need_update=true" >> $GITHUB_OUTPUT
-          else
-            echo "need_update=false" >> $GITHUB_OUTPUT
-          fi
-
-      # ==============================
-      # 📥 智能同步文件（防炸版）
-      # ==============================
-      - name: Smart sync files
-        if: steps.check.outputs.need_update == 'true'
-        run: |
-          set -e
-
-          BASE_URL="https://raw.githubusercontent.com/eooce/Cloudflare-proxy/main"
-
-          # 文件清单（可扩展）
-          FILES=(
-            "_worker.js"
-            "README.md"
-          )
-
-          for file in "${FILES[@]}"; do
-            echo "Downloading $file..."
-
-            if curl -fsSL "$BASE_URL/$file" -o "$file"; then
-              echo "✔ $file updated"
-            else
-              echo "⚠ $file missing upstream, keep local version"
-            fi
-          done
-
-          # 更新版本记录
-          echo "${{ steps.upstream.outputs.sha }}" > version.txt
-
-      # ==============================
-      # 🧾 生成变更提交
-      # ==============================
-      - name: Commit changes
-        if: steps.check.outputs.need_update == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add .
-
-          if git diff --cached --quiet; then
-            echo "No changes detected, skip commit"
-            exit 0
-          fi
-
-          git commit -m "🪞 mirror sync: ${{ steps.upstream.outputs.sha }}
-
-          upstream:
-          ${{ steps.upstream.outputs.msg }}"
-
-          git push
-
-      # ==============================
-      # 🧾 可选：运行日志输出
-      # ==============================
-      - name: Summary
-        run: |
-          echo "Mirror sync completed"
-          echo "Upstream SHA: ${{ steps.upstream.outputs.sha }}"
+  - name: 提交并推送变更  
+    if: env.updated == 'true'  
+    run: |  
+      git config --global user.name "github-actions[bot]"  
+      git config --global user.email "github-actions[bot]@users.noreply.github.com"  
+      git add _worker.js version.txt  
+      git commit -m "自动同步 _worker.js，上游版本 $(cat version.txt)"  
+      git push
