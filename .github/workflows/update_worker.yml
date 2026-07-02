@@ -1,52 +1,56 @@
-name: Daily Sync _worker.js from eooce/Cloudflare-proxy
+name: Daily Sync from eooce/Cloudflare-proxy
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 零点运行
-  workflow_dispatch:      # 支持手动触发
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
-  sync-worker:
+  sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出当前仓库代码
-        uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: 获取上游最新 commit SHA
+      - name: Get upstream latest SHA
         id: get_sha
         run: |
-          curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main \
-            | grep '"sha"' | head -n 1 | cut -d '"' -f 4 > upstream_sha.txt
-          echo "sha=$(cat upstream_sha.txt)" >> $GITHUB_OUTPUT
+          sha=$(curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main \
+            | jq -r '.sha')
+          echo "sha=$sha" >> $GITHUB_OUTPUT
 
-      - name: 检查是否需要更新
-        id: check_update
+      - name: Check update needed
+        id: check
         run: |
-          if [ ! -f version.txt ]; then
-            echo "首次运行，需更新"
+          if [ ! -s version.txt ]; then
             echo "need_update=true" >> $GITHUB_OUTPUT
-          elif ! cmp -s upstream_sha.txt version.txt; then
-            echo "上游有新版本，需更新"
+          elif [ "$(cat version.txt)" != "${{ steps.get_sha.outputs.sha }}" ]; then
             echo "need_update=true" >> $GITHUB_OUTPUT
           else
-            echo "版本未变，无需更新"
             echo "need_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: 同步 _worker.js 并更新 version.txt
-        if: steps.check_update.outputs.need_update == 'true'
+      - name: Sync files
+        if: steps.check.outputs.need_update == 'true'
         run: |
-          git clone --depth=1 https://github.com/eooce/Cloudflare-proxy.git upstream_repo
-          cp upstream_repo/_worker.js _worker.js
-          cp upstream_sha.txt version.txt
-          echo "updated=true" >> $GITHUB_ENV
+          curl -s https://raw.githubusercontent.com/eooce/Cloudflare-proxy/main/_worker.js -o _worker.js
+          curl -s https://raw.githubusercontent.com/eooce/Cloudflare-proxy/main/README.md -o README.md
 
-      - name: 提交并推送变更
-        if: env.updated == 'true'
+          echo "${{ steps.get_sha.outputs.sha }}" > version.txt
+
+      - name: Commit & push changes
+        if: steps.check.outputs.need_update == 'true'
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add _worker.js version.txt
-          git commit -m "自动同步 _worker.js，上游版本 $(cat version.txt)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add _worker.js README.md version.txt
+
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+
+          git commit -m "sync: update worker + README to ${{ steps.get_sha.outputs.sha }}"
           git push
