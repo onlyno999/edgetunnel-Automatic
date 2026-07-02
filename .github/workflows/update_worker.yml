@@ -1,4 +1,4 @@
-name: Daily Sync from eooce/Cloudflare-proxy
+name: Smart Mirror Bot (eooce/Cloudflare-proxy)
 
 on:
   schedule:
@@ -6,51 +6,101 @@ on:
   workflow_dispatch:
 
 jobs:
-  sync:
+  mirror:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Get upstream latest SHA
-        id: get_sha
+      # ==============================
+      # 🧠 获取 upstream 最新 commit
+      # ==============================
+      - name: Get upstream commit info
+        id: upstream
         run: |
-          sha=$(curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main \
-            | jq -r '.sha')
-          echo "sha=$sha" >> $GITHUB_OUTPUT
+          data=$(curl -s https://api.github.com/repos/eooce/Cloudflare-proxy/commits/main)
 
-      - name: Check update needed
+          sha=$(echo "$data" | jq -r '.sha')
+          msg=$(echo "$data" | jq -r '.commit.message' | head -c 120)
+
+          echo "sha=$sha" >> $GITHUB_OUTPUT
+          echo "msg=$msg" >> $GITHUB_OUTPUT
+
+      # ==============================
+      # 📦 判断是否需要更新
+      # ==============================
+      - name: Check update
         id: check
         run: |
           if [ ! -s version.txt ]; then
             echo "need_update=true" >> $GITHUB_OUTPUT
-          elif [ "$(cat version.txt)" != "${{ steps.get_sha.outputs.sha }}" ]; then
+            exit 0
+          fi
+
+          local_sha=$(cat version.txt)
+          if [ "$local_sha" != "${{ steps.upstream.outputs.sha }}" ]; then
             echo "need_update=true" >> $GITHUB_OUTPUT
           else
             echo "need_update=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Sync files
+      # ==============================
+      # 📥 智能同步文件（防炸版）
+      # ==============================
+      - name: Smart sync files
         if: steps.check.outputs.need_update == 'true'
         run: |
-          curl -s https://raw.githubusercontent.com/eooce/Cloudflare-proxy/main/_worker.js -o _worker.js
-          curl -s https://raw.githubusercontent.com/eooce/Cloudflare-proxy/main/README.md -o README.md
+          set -e
 
-          echo "${{ steps.get_sha.outputs.sha }}" > version.txt
+          BASE_URL="https://raw.githubusercontent.com/eooce/Cloudflare-proxy/main"
 
-      - name: Commit & push changes
+          # 文件清单（可扩展）
+          FILES=(
+            "_worker.js"
+            "README.md"
+          )
+
+          for file in "${FILES[@]}"; do
+            echo "Downloading $file..."
+
+            if curl -fsSL "$BASE_URL/$file" -o "$file"; then
+              echo "✔ $file updated"
+            else
+              echo "⚠ $file missing upstream, keep local version"
+            fi
+          done
+
+          # 更新版本记录
+          echo "${{ steps.upstream.outputs.sha }}" > version.txt
+
+      # ==============================
+      # 🧾 生成变更提交
+      # ==============================
+      - name: Commit changes
         if: steps.check.outputs.need_update == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add _worker.js README.md version.txt
+          git add .
 
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No changes detected, skip commit"
             exit 0
           fi
 
-          git commit -m "sync: update worker + README to ${{ steps.get_sha.outputs.sha }}"
+          git commit -m "🪞 mirror sync: ${{ steps.upstream.outputs.sha }}
+
+          upstream:
+          ${{ steps.upstream.outputs.msg }}"
+
           git push
+
+      # ==============================
+      # 🧾 可选：运行日志输出
+      # ==============================
+      - name: Summary
+        run: |
+          echo "Mirror sync completed"
+          echo "Upstream SHA: ${{ steps.upstream.outputs.sha }}"
